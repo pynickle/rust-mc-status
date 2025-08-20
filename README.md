@@ -21,7 +21,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-mc-status = "0.1"
+rust-mc-status = "1.0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -88,4 +88,3 @@ See the [`examples`](https://github.com/your_username/rust-mc-status/tree/main/e
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```

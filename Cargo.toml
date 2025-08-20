@@ -1,7 +1,12 @@
 [package]
 name = "rust-mc-status"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2024"
+description = ""
+repository = ""
+license = "MIT"
+keywords = ["minecraft", "server", "status", "ping"]
+categories = ["network-programming", "api-bindings", "asynchronous", "games"]
 
 [dependencies]
 tokio = { version = "1.47.1", features = ["full"] }
