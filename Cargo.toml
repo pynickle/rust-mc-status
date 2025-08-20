@@ -2,11 +2,14 @@
 name = "rust-mc-status"
 version = "1.0.1"
 edition = "2024"
-description = ""
-repository = ""
+authors = ["NameOfShadow 0nameofshadow0@gmail.com"]
+description = "High-performance asynchronous Rust library for querying Minecraft server status (Java & Bedrock)"
+repository = "https://github.com/NameOfShadow/rust-mc-status"
 license = "MIT"
-keywords = ["minecraft", "server", "status", "ping"]
+keywords = ["minecraft", "server", "status", "game", "asynchronous"]
 categories = ["network-programming", "api-bindings", "asynchronous", "games"]
+readme = "README.md"
+documentation = "https://docs.rs/rust-mc-status"
 
 [dependencies]
 tokio = { version = "1.47.1", features = ["full"] }
