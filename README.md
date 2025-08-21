@@ -108,3 +108,14 @@ See [examples/advanced_usage.rs](examples/advanced_usage.rs) for a demonstration
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Version
+
+I recommend increasing the version to **1.1.0** in `Cargo.toml`, since new functionality has been added without breaking backward compatibility:
+
+```toml
+[package]
+name = "rust-mc-status"
+version = "1.1.0"  # Change from 1.0.3 to 1.1.0
+# ... rest remains unchanged
+```

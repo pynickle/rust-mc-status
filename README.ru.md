@@ -108,7 +108,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Лицензия
 
 Этот проект лицензирован по лицензии MIT - подробности в файле [LICENSE](LICENSE).
-```
 
 ## Версия
 
