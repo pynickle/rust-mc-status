@@ -79,12 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 *   `JavaStatus`: Содержит детальную информацию от Java сервера.
     *   `save_favicon(filename)`: Сохраняет иконку сервера в формате PNG из base64.
 
-## Примеры
-
-Смотрите в директории [`examples`](https://github.com/your_username/rust-mc-status/tree/main/examples):
-*   `basic.rs`: Пример, показанный выше.
-*   *(Вы можете добавить сюда другие примеры, например, простую CLI-утилиту)*
-
 ## Лицензия
 
 Этот проект лицензирован под MIT License - подробности в файле [LICENSE](LICENSE).
