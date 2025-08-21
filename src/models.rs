@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use crate::McError;
 
-// Основные структуры статуса сервера
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerStatus {
     pub online: bool,
@@ -27,7 +26,6 @@ pub enum ServerData {
     Bedrock(BedrockStatus),
 }
 
-// DNS информация
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DnsInfo {
     pub a_records: Vec<String>,
@@ -35,7 +33,6 @@ pub struct DnsInfo {
     pub ttl: u32,
 }
 
-// Структуры для Java Edition
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JavaStatus {
     pub version: JavaVersion,
@@ -83,7 +80,6 @@ pub struct JavaMod {
     pub version: Option<String>,
 }
 
-// Структуры для Bedrock Edition
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BedrockStatus {
     pub edition: String,
@@ -103,7 +99,6 @@ pub struct BedrockStatus {
     pub raw_data: String,
 }
 
-// Вспомогательные структуры
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerInfo {
     pub address: String,
@@ -116,7 +111,6 @@ pub enum ServerEdition {
     Bedrock,
 }
 
-// Реализации методов
 impl fmt::Debug for JavaStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaStatus")

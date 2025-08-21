@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         // Saving icon
-                        if let Some(ref favicon) = java_status.favicon {
+                        if let Some(ref _favicon) = java_status.favicon {
                             if let Err(e) = java_status.save_favicon("server_icon.png") {
                                 println!("Failed to save icon: {}", e);
                             } else {
