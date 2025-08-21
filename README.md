@@ -23,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-mc-status = "1.1.0"
+rust-mc-status = "1.1.1"
 tokio = { version = "*", features = ["full"] }
 ```
 
@@ -111,11 +111,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version
 
-I recommend increasing the version to **1.1.0** in `Cargo.toml`, since new functionality has been added without breaking backward compatibility:
+I recommend increasing the version to **1.1.1** in `Cargo.toml`, since new functionality has been added without breaking backward compatibility:
 
 ```toml
 [package]
 name = "rust-mc-status"
-version = "1.1.0"  # Change from 1.0.3 to 1.1.0
+version = "1.1.1"  # Change from 1.0.3 to 1.1.1
 # ... rest remains unchanged
 ```
