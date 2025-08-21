@@ -1,6 +1,6 @@
 [package]
 name = "rust-mc-status"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 authors = ["NameOfShadow 0nameofshadow0@gmail.com"]
 description = "High-performance asynchronous Rust library for querying Minecraft server status (Java & Bedrock)"
