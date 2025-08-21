@@ -22,7 +22,7 @@
 ```toml
 [dependencies]
 rust-mc-status = "1.0.1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "*", features = ["full"] }
 ```
 
 ## Использование
