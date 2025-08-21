@@ -1,6 +1,6 @@
 [package]
 name = "rust-mc-status"
-version = "1.0.3"
+version = "1.1.0"
 edition = "2024"
 authors = ["NameOfShadow 0nameofshadow0@gmail.com"]
 description = "High-performance asynchronous Rust library for querying Minecraft server status (Java & Bedrock)"
@@ -20,3 +20,6 @@ once_cell = "1.21.3"
 futures = "0.3.31"
 thiserror = "2.0.16"
 base64 = "0.22.1"
+
+[dev-dependencies]
+tokio-test = "0.4.4"

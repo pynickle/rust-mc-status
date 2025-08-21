@@ -1,14 +1,18 @@
-use crate::error::McError;
-use crate::models::*;
-use dashmap::DashMap;
-use once_cell::sync::Lazy;
+use std::io::Cursor;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::{Duration, SystemTime};
+
+use dashmap::DashMap;
+use once_cell::sync::Lazy;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
-static DNS_CACHE: Lazy<DashMap<String, SocketAddr>> = Lazy::new(DashMap::new);
+use crate::error::McError;
+use crate::models::*;
+
+static DNS_CACHE: Lazy<DashMap<String, (SocketAddr, SystemTime)>> = Lazy::new(DashMap::new);
+const DNS_CACHE_TTL: u64 = 300; // 5 minutes
 
 #[derive(Clone)]
 pub struct McClient {
@@ -49,19 +53,160 @@ impl McClient {
 
     pub async fn ping_java(&self, address: &str) -> Result<ServerStatus, McError> {
         let start = SystemTime::now();
-        let (host, port_str) = address.split_once(':').unwrap_or((address, "25565"));
-        let port = port_str.parse::<u16>().map_err(|e| McError::InvalidPort(e.to_string()))?;
-
+        let (host, port) = Self::parse_address(address, 25565)?;
         let resolved = self.resolve_dns(host, port).await?;
+        let dns_info = self.get_dns_info(host).await.ok(); // DNS info is optional
 
         let mut stream = timeout(self.timeout, TcpStream::connect(resolved))
             .await
             .map_err(|_| McError::Timeout)?
             .map_err(|e| McError::ConnectionError(e.to_string()))?;
 
-        stream.set_nodelay(true).map_err(|e| McError::IoError(e))?;
+        stream.set_nodelay(true).map_err(McError::IoError)?;
 
-        // Handshake packet
+        // Send handshake
+        self.send_handshake(&mut stream, host, port).await?;
+
+        // Send status request
+        self.send_status_request(&mut stream).await?;
+
+        // Read and parse response
+        let response = self.read_response(&mut stream).await?;
+        let (json, latency) = self.parse_java_response(response, start)?;
+
+        // Build result
+        Ok(ServerStatus {
+            online: true,
+            ip: resolved.ip().to_string(),
+            port: resolved.port(),
+            hostname: host.to_string(),
+            latency,
+            dns: dns_info,
+            data: ServerData::Java(self.parse_java_json(&json)?),
+        })
+    }
+
+    pub async fn ping_bedrock(&self, address: &str) -> Result<ServerStatus, McError> {
+        let start = SystemTime::now();
+        let (host, port) = Self::parse_address(address, 19132)?;
+        let resolved = self.resolve_dns(host, port).await?;
+        let dns_info = self.get_dns_info(host).await.ok(); // DNS info is optional
+
+        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(McError::IoError)?;
+
+        // Send ping packet
+        let ping_packet = self.create_bedrock_ping_packet();
+        timeout(self.timeout, socket.send_to(&ping_packet, resolved))
+            .await
+            .map_err(|_| McError::Timeout)?
+            .map_err(|e| McError::IoError(e))?;
+
+        // Receive response
+        let mut buf = [0u8; 1024];
+        let (len, _) = timeout(self.timeout, socket.recv_from(&mut buf))
+            .await
+            .map_err(|_| McError::Timeout)?
+            .map_err(|e| McError::IoError(e))?;
+
+        if len < 35 {
+            return Err(McError::InvalidResponse("Response too short".to_string()));
+        }
+
+        let latency = start.elapsed()
+            .map_err(|_| McError::InvalidResponse("Time error".to_string()))?
+            .as_secs_f64() * 1000.0;
+
+        let pong_data = String::from_utf8_lossy(&buf[35..len]).to_string();
+
+        Ok(ServerStatus {
+            online: true,
+            ip: resolved.ip().to_string(),
+            port: resolved.port(),
+            hostname: host.to_string(),
+            latency,
+            dns: dns_info,
+            data: ServerData::Bedrock(self.parse_bedrock_response(&pong_data)?),
+        })
+    }
+
+    pub async fn ping_many(&self, servers: &[ServerInfo]) -> Vec<(ServerInfo, Result<ServerStatus, McError>)> {
+        use futures::stream::StreamExt;
+        use tokio::sync::Semaphore;
+
+        let semaphore = std::sync::Arc::new(Semaphore::new(self.max_parallel));
+        let client = self.clone();
+
+        let futures = servers.iter().map(|server| {
+            let server = server.clone();
+            let semaphore = semaphore.clone();
+            let client = client.clone();
+
+            async move {
+                let _permit = semaphore.acquire().await;
+                let result = client.ping(&server.address, server.edition).await;
+                (server, result)
+            }
+        });
+
+        futures::stream::iter(futures)
+            .buffer_unordered(self.max_parallel)
+            .collect()
+            .await
+    }
+
+    // Helper methods
+    fn parse_address(address: &str, default_port: u16) -> Result<(&str, u16), McError> {
+        if let Some((host, port_str)) = address.split_once(':') {
+            let port = port_str.parse::<u16>()
+                .map_err(|e| McError::InvalidPort(e.to_string()))?;
+            Ok((host, port))
+        } else {
+            Ok((address, default_port))
+        }
+    }
+
+    async fn resolve_dns(&self, host: &str, port: u16) -> Result<SocketAddr, McError> {
+        let cache_key = format!("{}:{}", host, port);
+
+        // Check cache with TTL validation
+        if let Some(entry) = DNS_CACHE.get(&cache_key) {
+            let (addr, timestamp) = *entry.value();
+            if timestamp.elapsed().map(|d| d.as_secs() < DNS_CACHE_TTL).unwrap_or(false) {
+                return Ok(addr);
+            }
+        }
+
+        // Resolve and cache
+        let addrs: Vec<SocketAddr> = format!("{}:{}", host, port)
+            .to_socket_addrs()
+            .map_err(|e| McError::DnsError(e.to_string()))?
+            .collect();
+
+        let addr = addrs.iter()
+            .find(|a| a.is_ipv4())
+            .or_else(|| addrs.first())
+            .copied()
+            .ok_or_else(|| McError::DnsError("No addresses resolved".to_string()))?;
+
+        DNS_CACHE.insert(cache_key, (addr, SystemTime::now()));
+        Ok(addr)
+    }
+
+    async fn get_dns_info(&self, host: &str) -> Result<DnsInfo, McError> {
+        // Simple implementation - in production you might want to use a proper DNS library
+        let addrs: Vec<SocketAddr> = format!("{}:0", host)
+            .to_socket_addrs()
+            .map_err(|e| McError::DnsError(e.to_string()))?
+            .collect();
+
+        Ok(DnsInfo {
+            a_records: addrs.iter().map(|a| a.ip().to_string()).collect(),
+            cname: None, // This would require proper DNS queries
+            ttl: 300,
+        })
+    }
+
+    async fn send_handshake(&self, stream: &mut TcpStream, host: &str, port: u16) -> Result<(), McError> {
         let mut handshake = Vec::with_capacity(64);
         write_var_int(&mut handshake, 0x00);
         write_var_int(&mut handshake, 47);
@@ -76,9 +221,10 @@ impl McClient {
         timeout(self.timeout, stream.write_all(&packet))
             .await
             .map_err(|_| McError::Timeout)?
-            .map_err(|e| McError::IoError(e))?;
+            .map_err(McError::IoError)
+    }
 
-        // Status request packet
+    async fn send_status_request(&self, stream: &mut TcpStream) -> Result<(), McError> {
         let mut status_request = Vec::with_capacity(5);
         write_var_int(&mut status_request, 0x00);
 
@@ -89,32 +235,38 @@ impl McClient {
         timeout(self.timeout, stream.write_all(&status_packet))
             .await
             .map_err(|_| McError::Timeout)?
-            .map_err(|e| McError::IoError(e))?;
+            .map_err(McError::IoError)
+    }
 
-        // Read response
+    async fn read_response(&self, stream: &mut TcpStream) -> Result<Vec<u8>, McError> {
         let mut response = Vec::with_capacity(1024);
         let mut buf = [0u8; 4096];
+        let mut expected_length = None;
 
         loop {
-            let read_result = timeout(self.timeout, stream.read(&mut buf)).await;
+            let n = timeout(self.timeout, stream.read(&mut buf))
+                .await
+                .map_err(|_| McError::Timeout)?
+                .map_err(McError::IoError)?;
 
-            match read_result {
-                Ok(Ok(0)) => break,
-                Ok(Ok(n)) => {
-                    response.extend_from_slice(&buf[..n]);
+            if n == 0 {
+                break;
+            }
 
-                    if response.len() >= 5 {
-                        let mut cursor = std::io::Cursor::new(&response);
-                        if let Ok(packet_length) = read_var_int(&mut cursor) {
-                            let total_length = cursor.position() as usize + packet_length as usize;
-                            if response.len() >= total_length {
-                                break;
-                            }
-                        }
-                    }
+            response.extend_from_slice(&buf[..n]);
+
+            // Check if we have enough data to determine packet length
+            if expected_length.is_none() && response.len() >= 5 {
+                let mut cursor = Cursor::new(&response);
+                if let Ok(packet_length) = read_var_int(&mut cursor) {
+                    expected_length = Some(cursor.position() as usize + packet_length as usize);
                 }
-                Ok(Err(e)) => return Err(McError::IoError(e)),
-                Err(_) => return Err(McError::Timeout),
+            }
+
+            if let Some(expected) = expected_length {
+                if response.len() >= expected {
+                    break;
+                }
             }
         }
 
@@ -122,31 +274,52 @@ impl McClient {
             return Err(McError::InvalidResponse("No response from server".to_string()));
         }
 
-        let mut cursor = std::io::Cursor::new(&response);
-        let packet_length = read_var_int(&mut cursor).map_err(|e| McError::InvalidResponse(e))?;
+        Ok(response)
+    }
+
+    fn parse_java_response(&self, response: Vec<u8>, start: SystemTime) -> Result<(serde_json::Value, f64), McError> {
+        let mut cursor = Cursor::new(&response);
+        let packet_length = read_var_int(&mut cursor)
+            .map_err(|e| McError::InvalidResponse(format!("Failed to read packet length: {}", e)))?;
 
         let total_expected = cursor.position() as usize + packet_length as usize;
         if response.len() < total_expected {
-            return Err(McError::InvalidResponse(format!("Incomplete packet: expected {}, got {}", total_expected, response.len())));
+            return Err(McError::InvalidResponse(format!(
+                "Incomplete packet: expected {}, got {}",
+                total_expected,
+                response.len()
+            )));
         }
 
-        let packet_id = read_var_int(&mut cursor).map_err(|e| McError::InvalidResponse(e))?;
+        let packet_id = read_var_int(&mut cursor)
+            .map_err(|e| McError::InvalidResponse(format!("Failed to read packet ID: {}", e)))?;
+
         if packet_id != 0x00 {
             return Err(McError::InvalidResponse(format!("Unexpected packet ID: {}", packet_id)));
         }
 
-        let json_length = read_var_int(&mut cursor).map_err(|e| McError::InvalidResponse(e))?;
+        let json_length = read_var_int(&mut cursor)
+            .map_err(|e| McError::InvalidResponse(format!("Failed to read JSON length: {}", e)))?;
+
         if cursor.position() as usize + json_length as usize > response.len() {
             return Err(McError::InvalidResponse("JSON data truncated".to_string()));
         }
 
         let json_buf = &response[cursor.position() as usize..cursor.position() as usize + json_length as usize];
-        let json_str = String::from_utf8(json_buf.to_vec()).map_err(|e| McError::Utf8Error(e))?;
-        let json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| McError::JsonError(e))?;
+        let json_str = String::from_utf8(json_buf.to_vec())
+            .map_err(McError::Utf8Error)?;
 
-        let latency = start.elapsed().map_err(|_| McError::InvalidResponse("Time error".to_string()))?.as_secs_f64() * 1000.0;
+        let json: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(McError::JsonError)?;
 
-        // Parse JSON into structured data
+        let latency = start.elapsed()
+            .map_err(|_| McError::InvalidResponse("Time error".to_string()))?
+            .as_secs_f64() * 1000.0;
+
+        Ok((json, latency))
+    }
+
+    fn parse_java_json(&self, json: &serde_json::Value) -> Result<JavaStatus, McError> {
         let version = JavaVersion {
             name: json["version"]["name"].as_str().unwrap_or("Unknown").to_string(),
             protocol: json["version"]["protocol"].as_i64().unwrap_or(0),
@@ -176,63 +349,67 @@ impl McClient {
         };
 
         let favicon = json["favicon"].as_str().map(|s| s.to_string());
+        let map = json["map"].as_str().map(|s| s.to_string());
+        let gamemode = json["gamemode"].as_str().map(|s| s.to_string());
+        let software = json["software"].as_str().map(|s| s.to_string());
 
-        Ok(ServerStatus {
-            online: true,
-            latency,
-            data: ServerData::Java(JavaStatus {
-                version,
-                players,
-                description,
-                favicon,
-                raw_data: json,
-            }),
+        let plugins = if let Some(plugins_array) = json["plugins"].as_array() {
+            Some(plugins_array.iter().filter_map(|p| {
+                Some(JavaPlugin {
+                    name: p["name"].as_str()?.to_string(),
+                    version: p["version"].as_str().map(|s| s.to_string()),
+                })
+            }).collect())
+        } else {
+            None
+        };
+
+        let mods = if let Some(mods_array) = json["mods"].as_array() {
+            Some(mods_array.iter().filter_map(|m| {
+                Some(JavaMod {
+                    modid: m["modid"].as_str()?.to_string(),
+                    version: m["version"].as_str().map(|s| s.to_string()),
+                })
+            }).collect())
+        } else {
+            None
+        };
+
+        Ok(JavaStatus {
+            version,
+            players,
+            description,
+            favicon,
+            map,
+            gamemode,
+            software,
+            plugins,
+            mods,
+            raw_data: json.clone(),
         })
     }
 
-    pub async fn ping_bedrock(&self, address: &str) -> Result<ServerStatus, McError> {
-        let start = SystemTime::now();
-        let (host, port_str) = address.split_once(':').unwrap_or((address, "19132"));
-        let port = port_str.parse::<u16>().map_err(|e| McError::InvalidPort(e.to_string()))?;
-
-        let resolved = self.resolve_dns(host, port).await?;
-
-        let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| McError::IoError(e))?;
-
+    fn create_bedrock_ping_packet(&self) -> Vec<u8> {
         let mut ping_packet = Vec::with_capacity(35);
         ping_packet.push(0x01);
-        ping_packet.extend_from_slice(&(SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+        ping_packet.extend_from_slice(&(SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64)
             .to_be_bytes());
         ping_packet.extend_from_slice(&[0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78]);
         ping_packet.extend_from_slice(&[0x00; 8]);
+        ping_packet
+    }
 
-        timeout(self.timeout, socket.send_to(&ping_packet, resolved))
-            .await
-            .map_err(|_| McError::Timeout)?
-            .map_err(|e| McError::IoError(e))?;
-
-        let mut buf = [0u8; 1024];
-        let (len, _) = timeout(self.timeout, socket.recv_from(&mut buf))
-            .await
-            .map_err(|_| McError::Timeout)?
-            .map_err(|e| McError::IoError(e))?;
-
-        let latency = start.elapsed().map_err(|_| McError::InvalidResponse("Time error".to_string()))?.as_secs_f64() * 1000.0;
-
-        if len < 35 {
-            return Err(McError::InvalidResponse("Response too short".to_string()));
-        }
-
-        let pong_data = String::from_utf8_lossy(&buf[35..len]).to_string();
+    fn parse_bedrock_response(&self, pong_data: &str) -> Result<BedrockStatus, McError> {
         let parts: Vec<&str> = pong_data.split(';').collect();
 
         if parts.len() < 6 {
             return Err(McError::InvalidResponse("Invalid Bedrock response".to_string()));
         }
 
-        let status = BedrockStatus {
+        Ok(BedrockStatus {
             edition: parts[0].to_string(),
             motd: parts[1].to_string(),
             protocol_version: parts[2].to_string(),
@@ -245,70 +422,10 @@ impl McClient {
             game_mode_numeric: parts.get(9).map_or("", |s| *s).to_string(),
             port_ipv4: parts.get(10).map_or("", |s| *s).to_string(),
             port_ipv6: parts.get(11).map_or("", |s| *s).to_string(),
-            raw_data: pong_data,
-        };
-
-        Ok(ServerStatus {
-            online: true,
-            latency,
-            data: ServerData::Bedrock(status),
+            map: parts.get(12).map(|s| s.to_string()),
+            software: parts.get(13).map(|s| s.to_string()),
+            raw_data: pong_data.to_string(),
         })
-    }
-
-    pub async fn ping_many(&self, servers: &[ServerInfo]) -> Vec<(ServerInfo, Result<ServerStatus, McError>)> {
-        use futures::stream::StreamExt;
-        use tokio::sync::Semaphore;
-
-        let semaphore = std::sync::Arc::new(Semaphore::new(self.max_parallel));
-        let client = self.clone();
-
-        let futures = servers.iter().map(|server| {
-            let server = server.clone();
-            let semaphore = semaphore.clone();
-            let client = client.clone();
-
-            async move {
-                let _permit = semaphore.acquire().await;
-                let result = client.ping(&server.address, server.edition).await;
-                (server, result)
-            }
-        });
-
-        let mut results = Vec::new();
-        let mut stream = futures::stream::iter(futures).buffer_unordered(self.max_parallel);
-
-        while let Some(result) = stream.next().await {
-            results.push(result);
-        }
-
-        results
-    }
-
-    async fn resolve_dns(&self, host: &str, port: u16) -> Result<SocketAddr, McError> {
-        let cache_key = format!("{}:{}", host, port);
-
-        if let Some(addr) = DNS_CACHE.get(&cache_key) {
-            return Ok(*addr);
-        }
-
-        let addrs: Vec<SocketAddr> = format!("{}:{}", host, port)
-            .to_socket_addrs()
-            .map_err(|e| McError::DnsError(e.to_string()))?
-            .collect();
-
-        if addrs.is_empty() {
-            return Err(McError::DnsError("No addresses resolved".to_string()));
-        }
-
-        // IPv4 for better compatibility
-        let addr = addrs.iter()
-            .find(|a| a.is_ipv4())
-            .or_else(|| addrs.first())
-            .copied()
-            .unwrap();
-
-        DNS_CACHE.insert(cache_key, addr);
-        Ok(addr)
     }
 }
 

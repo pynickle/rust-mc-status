@@ -31,4 +31,7 @@ pub enum McError {
 
     #[error("Invalid port: {0}")]
     InvalidPort(String),
+
+    #[error("Invalid address format: {0}")]
+    InvalidAddress(String),
 }

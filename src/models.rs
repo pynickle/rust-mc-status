@@ -1,48 +1,23 @@
 use std::fmt;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use crate::McError;
 use std::fs::File;
 use std::io::Write;
-use base64::{engine::general_purpose, Engine as _};
 
+use base64::{engine::general_purpose, Engine as _};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::McError;
+
+// Основные структуры статуса сервера
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerStatus {
     pub online: bool,
+    pub ip: String,
+    pub port: u16,
+    pub hostname: String,
     pub latency: f64,
+    pub dns: Option<DnsInfo>,
     pub data: ServerData,
-}
-
-impl fmt::Debug for JavaStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JavaStatus")
-            .field("version", &self.version)
-            .field("players", &self.players)
-            .field("description", &self.description)
-            .field("favicon", &self.favicon.as_ref().map(|_| "[Favicon data]"))
-            .field("raw_data", &"[Value]")
-            .finish()
-    }
-}
-
-impl JavaStatus {
-    pub fn save_favicon(&self, filename: &str) -> Result<(), McError> {
-        if let Some(favicon) = &self.favicon {
-            let data = favicon.split(',').nth(1).unwrap_or(favicon);
-            let bytes = general_purpose::STANDARD.decode(data)
-                .map_err(|e| McError::Base64Error(e))?;
-
-            let mut file = File::create(filename)
-                .map_err(|e| McError::IoError(e))?;
-
-            file.write_all(&bytes)
-                .map_err(|e| McError::IoError(e))?;
-
-            Ok(())
-        } else {
-            Err(McError::InvalidResponse("No favicon available".to_string()))
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,6 +27,15 @@ pub enum ServerData {
     Bedrock(BedrockStatus),
 }
 
+// DNS информация
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DnsInfo {
+    pub a_records: Vec<String>,
+    pub cname: Option<String>,
+    pub ttl: u32,
+}
+
+// Структуры для Java Edition
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JavaStatus {
     pub version: JavaVersion,
@@ -59,6 +43,11 @@ pub struct JavaStatus {
     pub description: String,
     #[serde(skip_serializing)]
     pub favicon: Option<String>,
+    pub map: Option<String>,
+    pub gamemode: Option<String>,
+    pub software: Option<String>,
+    pub plugins: Option<Vec<JavaPlugin>>,
+    pub mods: Option<Vec<JavaMod>>,
     #[serde(skip)]
     pub raw_data: Value,
 }
@@ -82,6 +71,19 @@ pub struct JavaPlayer {
     pub id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JavaPlugin {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JavaMod {
+    pub modid: String,
+    pub version: Option<String>,
+}
+
+// Структуры для Bedrock Edition
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BedrockStatus {
     pub edition: String,
@@ -96,7 +98,58 @@ pub struct BedrockStatus {
     pub game_mode_numeric: String,
     pub port_ipv4: String,
     pub port_ipv6: String,
+    pub map: Option<String>,
+    pub software: Option<String>,
     pub raw_data: String,
+}
+
+// Вспомогательные структуры
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServerInfo {
+    pub address: String,
+    pub edition: ServerEdition,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum ServerEdition {
+    Java,
+    Bedrock,
+}
+
+// Реализации методов
+impl fmt::Debug for JavaStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaStatus")
+            .field("version", &self.version)
+            .field("players", &self.players)
+            .field("description", &self.description)
+            .field("map", &self.map)
+            .field("gamemode", &self.gamemode)
+            .field("software", &self.software)
+            .field("plugins", &self.plugins.as_ref().map(|p| p.len()))
+            .field("mods", &self.mods.as_ref().map(|m| m.len()))
+            .field("favicon", &self.favicon.as_ref().map(|_| "[Favicon data]"))
+            .field("raw_data", &"[Value]")
+            .finish()
+    }
+}
+
+impl JavaStatus {
+    pub fn save_favicon(&self, filename: &str) -> Result<(), McError> {
+        if let Some(favicon) = &self.favicon {
+            let data = favicon.split(',').nth(1).unwrap_or(favicon);
+            let bytes = general_purpose::STANDARD
+                .decode(data)
+                .map_err(McError::Base64Error)?;
+
+            let mut file = File::create(filename).map_err(McError::IoError)?;
+            file.write_all(&bytes).map_err(McError::IoError)?;
+
+            Ok(())
+        } else {
+            Err(McError::InvalidResponse("No favicon available".to_string()))
+        }
+    }
 }
 
 impl fmt::Debug for BedrockStatus {
@@ -114,21 +167,11 @@ impl fmt::Debug for BedrockStatus {
             .field("game_mode_numeric", &self.game_mode_numeric)
             .field("port_ipv4", &self.port_ipv4)
             .field("port_ipv6", &self.port_ipv6)
-            .field("raw_data", &"[String]")
+            .field("map", &self.map)
+            .field("software", &self.software)
+            .field("raw_data", &self.raw_data.len())
             .finish()
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ServerInfo {
-    pub address: String,
-    pub edition: ServerEdition,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-pub enum ServerEdition {
-    Java,
-    Bedrock,
 }
 
 impl std::str::FromStr for ServerEdition {
