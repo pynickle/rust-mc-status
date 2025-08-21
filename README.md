@@ -79,12 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 *   `JavaStatus`: Contains detailed information from a Java server.
     *   `save_favicon(filename)`: Saves the base64-encoded favicon to a PNG file.
 
-## Examples
-
-See the [`examples`](https://github.com/your_username/rust-mc-status/tree/main/examples) directory for more advanced usage.
-*   `basic.rs`: The example shown above.
-*   *(You can add more example scripts here later, like one for a simple CLI tool)*
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
