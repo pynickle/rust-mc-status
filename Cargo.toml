@@ -1,25 +1,23 @@
 [package]
-name = "rust-mc-status"
-version = "1.1.1"
+name = "mc-server-status"
+version = "1.0.0"
 edition = "2024"
-authors = ["NameOfShadow 0nameofshadow0@gmail.com"]
-description = "High-performance asynchronous Rust library for querying Minecraft server status (Java & Bedrock)"
-repository = "https://github.com/NameOfShadow/rust-mc-status"
+authors = ["Original Author NameOfShadow 0nameofshadow0@gmail.com", "pynickle 2330458484@qq.com"]
+description = "High-performance asynchronous Rust library for querying Minecraft server status (Java & Bedrock), Fork of Rust MC Status"
+repository = "https://github.com/pynickle/rust-mc-status"
 license = "MIT"
 keywords = ["minecraft", "server", "status", "game", "asynchronous"]
 categories = ["network-programming", "api-bindings", "asynchronous", "games"]
 readme = "README.md"
-documentation = "https://docs.rs/rust-mc-status"
+documentation = "https://docs.rs/mc-server-status"
 
 [dependencies]
-tokio = { version = "1.47.1", features = ["full"] }
-serde_json = "1.0.143"
-serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["full"] }
+serde_json = "1.0.145"
+serde = { version = "1.0.228", features = ["derive"] }
 dashmap = "7.0.0-rc2"
 once_cell = "1.21.3"
 futures = "0.3.31"
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 base64 = "0.22.1"
-
-[dev-dependencies]
-tokio-test = "0.4.4"
+trust-dns-resolver = "0.23.2"

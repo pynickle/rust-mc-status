@@ -1,8 +1,10 @@
+// Copyright (c) 2025 pynickle. This is a fork of Original Crate. Original copyright: Copyright (c) 2025 NameOfShadow
+
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -1,17 +1,20 @@
 # Rust Minecraft Server Status Library
 
-[![Crates.io](https://img.shields.io/crates/v/rust-mc-status)](https://crates.io/crates/rust-mc-status)
-[![Documentation](https://docs.rs/rust-mc-status/badge.svg)](https://docs.rs/rust-mc-status)
+[![Crates.io](https://img.shields.io/crates/v/mc-server-status)](https://crates.io/crates/mc-server-status)
+[![Documentation](https://docs.rs/mc-server-status/badge.svg)](https://docs.rs/mc-server-status)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**Fork of [NameOfShadow/rust-mc-status](https://github.com/NameOfShadow/rust-mc-status)**
 
 A high-performance, asynchronous Rust library for querying the status of both Minecraft Java Edition and Bedrock Edition servers.
 
 ## Features
 
 *   **Dual Protocol Support**: Ping both Minecraft Java Edition (`25565`) and Bedrock Edition (`19132`) servers.
+*   **DNS SRV Record Support (New Feature)**: Automatically resolves DNS SRV records (`_minecraft._tcp`) for Java Edition servers when no port is specified, matching native Minecraft client behavior.
 *   **Async/Await**: Built on Tokio for non-blocking operations and high concurrency.
 *   **Batch Queries**: Ping multiple servers in parallel with configurable concurrency limits.
-*   **DNS Caching**: Automatically caches DNS lookups to reduce latency for repeated queries.
+*   **DNS Caching (New Feature)**: Automatically caches DNS lookups and SRV records to reduce latency for repeated queries.
 *   **Structured Data**: Returns richly structured, serializable data (using `serde`), including version info, player counts, MOTD, map, gamemode, plugins, mods and more.
 *   **Favicon Handling**: Easily retrieve and save the server's favicon (Java Edition only).
 *   **Robust Error Handling**: Comprehensive error types using `thiserror`.
@@ -23,7 +26,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rust-mc-status = "1.1.1"
+mc-server-status = "1.0.0"
 tokio = { version = "*", features = ["full"] }
 ```
 
@@ -32,7 +35,7 @@ tokio = { version = "*", features = ["full"] }
 ### Basic Example
 
 ```rust
-use rust_mc_status::{McClient, ServerEdition, ServerInfo};
+use mc_server_status::{McClient, ServerEdition, ServerInfo};
 use std::time::Duration;
 
 #[tokio::main]
@@ -108,14 +111,3 @@ See [examples/advanced_usage.rs](examples/advanced_usage.rs) for a demonstration
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Version
-
-I recommend increasing the version to **1.1.1** in `Cargo.toml`, since new functionality has been added without breaking backward compatibility:
-
-```toml
-[package]
-name = "rust-mc-status"
-version = "1.1.1"  # Change from 1.0.3 to 1.1.1
-# ... rest remains unchanged
-```

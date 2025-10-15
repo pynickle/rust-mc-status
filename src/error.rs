@@ -1,3 +1,5 @@
+// Copyright (c) 2025 pynickle. This is a fork of Original Crate. Original copyright: Copyright (c) 2025 NameOfShadow
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
